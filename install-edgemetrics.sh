@@ -68,8 +68,52 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
+# Check if the API response contains an error (no releases available)
+if echo "$RELEASE_DATA" | grep -q '"message":[[:space:]]*"Not Found"'; then
+    echo -e "${RED}❌ No releases are available yet${NC}"
+    echo ""
+    echo -e "${YELLOW}EdgeMetrics releases are not yet published to GitHub.${NC}"
+    echo ""
+    echo -e "${CYAN}Alternative installation options:${NC}"
+    echo "1. Check back later for official releases"
+    echo "2. Visit https://github.com/EdgeWardIO/EdgeMetrics for updates"
+    echo "3. Follow @EdgeWardIO for release announcements"
+    echo "4. Contact support if you need immediate access"
+    echo ""
+    echo -e "${BLUE}For development builds or early access:${NC}"
+    echo "• Visit: https://edgewardstudios.com"
+    echo "• Email: support@edgewardstudios.com"
+    exit 1
+fi
+
+# Check for other API errors
+if echo "$RELEASE_DATA" | grep -q '"message"'; then
+    ERROR_MSG=$(echo "$RELEASE_DATA" | grep -o '"message":[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"message":[[:space:]]*"\([^"]*\)".*/\1/')
+    echo -e "${RED}❌ GitHub API error: $ERROR_MSG${NC}"
+    echo ""
+    echo -e "${YELLOW}Please try again later or check:${NC}"
+    echo "• Repository: https://github.com/$REPO"
+    echo "• Network connectivity"
+    echo "• GitHub status: https://www.githubstatus.com"
+    exit 1
+fi
+
 # Parse release info
 RELEASE_TAG=$(echo "$RELEASE_DATA" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/')
+
+if [[ -z "$RELEASE_TAG" ]]; then
+    echo -e "${RED}❌ Could not parse release information${NC}"
+    echo ""
+    echo -e "${YELLOW}The GitHub API response was unexpected.${NC}"
+    echo "This might indicate:"
+    echo "• A temporary GitHub API issue"
+    echo "• Changes in the repository structure"
+    echo "• Network connectivity problems"
+    echo ""
+    echo -e "${CYAN}Please try again later or contact support.${NC}"
+    exit 1
+fi
+
 VERSION=$(echo "$RELEASE_TAG" | sed 's/^v//')  # Remove 'v' prefix to get version number
 
 # Find package URLs that match the release version (exact match)
@@ -88,11 +132,6 @@ if [[ -z "$RPM_URL" ]]; then
 fi
 if [[ -z "$APPIMAGE_URL" ]]; then
     APPIMAGE_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.AppImage' | grep -i "$ARCH" | head -1)
-fi
-
-if [[ -z "$RELEASE_TAG" ]]; then
-    echo -e "${RED}❌ Could not parse release information${NC}"
-    exit 1
 fi
 
 echo -e "${GREEN}✅ Latest release: $RELEASE_TAG${NC}"
