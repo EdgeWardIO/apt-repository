@@ -117,11 +117,10 @@ fi
 VERSION=$(echo "$RELEASE_TAG" | sed 's/^v//')  # Remove 'v' prefix to get version number
 
 # Find package URLs that match the release version (exact match)
-# Escape dots in version for grep pattern matching
-VERSION_PATTERN=$(echo "$VERSION" | sed 's/\./\\./g')
-DEB_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.deb' | grep -i "$ARCH" | grep "_${VERSION_PATTERN}_" | head -1)
-RPM_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.rpm' | grep -i "$ARCH" | grep "-${VERSION_PATTERN}-" | head -1)
-APPIMAGE_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.AppImage' | grep -i "$ARCH" | grep "_${VERSION_PATTERN}_" | head -1)
+# Use literal string matching instead of regex to avoid escaping issues
+DEB_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.deb' | grep -i "$ARCH" | grep "_${VERSION}_" | head -1)
+RPM_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.rpm' | grep -i "$ARCH" | grep "-${VERSION}-" | head -1)
+APPIMAGE_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.AppImage' | grep -i "$ARCH" | grep "_${VERSION}_" | head -1)
 
 # Fallback to any package if version-specific not found
 if [[ -z "$DEB_URL" ]]; then
