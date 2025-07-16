@@ -89,7 +89,7 @@ if echo "$RELEASE_DATA" | grep -q '"message":[[:space:]]*"Not Found"'; then
     echo "4. Contact support if you need immediate access"
     echo ""
     echo -e "${BLUE}For development builds or early access:${NC}"
-    echo "• Visit: https://edgewardstudios.com"
+    echo "• Visit: https://edgemetrics.app"
     echo "• Email: support@edgemetrics.app"
     exit 1
 fi
@@ -275,17 +275,25 @@ install_linux() {
         TEMP_TAR=$(mktemp --suffix=.tar.gz)
         if curl -fsSL "$TARGZ_URL" -o "$TEMP_TAR"; then
             # Extract binaries from tar.gz
-            tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" --strip-components=0 edgemetrics-server edgemetrics-cli edgemetrics 2>/dev/null || {
-                # Try without strip-components if structure is different
-                tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" 2>/dev/null
-            }
-            
-            # Make binaries executable
-            chmod +x "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics-cli" "$INSTALL_DIR/edgemetrics" 2>/dev/null || true
-            
-            rm -f "$TEMP_TAR"
-            
-            echo -e "${GREEN}✅ EdgeMetrics binaries installed to $INSTALL_DIR${NC}"
+            if tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" --strip-components=0 edgemetrics-server edgemetrics-cli edgemetrics 2>/dev/null || tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" 2>/dev/null; then
+                # Make binaries executable
+                chmod +x "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics-cli" "$INSTALL_DIR/edgemetrics" 2>/dev/null || true
+                
+                rm -f "$TEMP_TAR"
+                
+                # Verify at least the server binary exists
+                if [[ -f "$INSTALL_DIR/edgemetrics-server" ]]; then
+                    echo -e "${GREEN}✅ EdgeMetrics binaries installed to $INSTALL_DIR${NC}"
+                else
+                    echo -e "${RED}❌ Server binary not found after extraction${NC}"
+                    rm -f "$TEMP_TAR"
+                    return 1
+                fi
+            else
+                echo -e "${RED}❌ Failed to extract binaries from archive${NC}"
+                rm -f "$TEMP_TAR"
+                return 1
+            fi
             
             # Add to PATH if needed
             if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]] && [[ $EUID -ne 0 ]]; then
@@ -305,9 +313,9 @@ install_linux() {
         rm -f "$TEMP_TAR"
     fi
     
-    # Try direct binary download if available
+    # Try direct binary download if available (fallback)
     if [[ -n "$SERVER_BINARY_URL" ]]; then
-        echo -e "${BLUE}📦 Installing server binary directly...${NC}"
+        echo -e "${BLUE}📦 Trying direct binary download...${NC}"
         
         # Determine install location
         if [[ $EUID -eq 0 ]]; then
@@ -318,17 +326,17 @@ install_linux() {
         fi
         
         echo "Downloading: edgemetrics-server"
-        if curl -fsSL "$SERVER_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-server"; then
+        if curl -fsSL "$SERVER_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-server" 2>/dev/null; then
             chmod +x "$INSTALL_DIR/edgemetrics-server"
             
             # Download CLI binary if available
             if [[ -n "$CLI_BINARY_URL" ]]; then
-                curl -fsSL "$CLI_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-cli" && chmod +x "$INSTALL_DIR/edgemetrics-cli"
+                curl -fsSL "$CLI_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-cli" 2>/dev/null && chmod +x "$INSTALL_DIR/edgemetrics-cli"
             fi
             
             # Download main binary if available
             if [[ -n "$MAIN_BINARY_URL" ]]; then
-                curl -fsSL "$MAIN_BINARY_URL" -o "$INSTALL_DIR/edgemetrics" && chmod +x "$INSTALL_DIR/edgemetrics"
+                curl -fsSL "$MAIN_BINARY_URL" -o "$INSTALL_DIR/edgemetrics" 2>/dev/null && chmod +x "$INSTALL_DIR/edgemetrics"
             fi
             
             echo -e "${GREEN}✅ EdgeMetrics server installed to $INSTALL_DIR/edgemetrics-server${NC}"
@@ -347,6 +355,8 @@ install_linux() {
             fi
             
             return 0
+        else
+            echo -e "${YELLOW}⚠️  Direct binary download failed${NC}"
         fi
     fi
     
@@ -373,8 +383,8 @@ case "$OS" in
             else
                 echo -e "${CYAN}Single Binary Mode - Manual start/stop${NC}"
                 echo -e "${CYAN}How to use:${NC}"
-                echo "  • Start server: edgemetrics-server server start"
-                echo "  • Custom port:  edgemetrics-server server start --port 9000"
+                echo "  • Start server: edgemetrics-server start --host 127.0.0.1 --port 8080 --open"
+                echo "  • Custom port:  edgemetrics-server start --host 127.0.0.1 --port 9000 --open"
                 echo "  • Help: edgemetrics-server --help"
                 echo "  • Version: edgemetrics-server --version"
                 echo ""
