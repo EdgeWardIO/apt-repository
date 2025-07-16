@@ -90,7 +90,7 @@ if echo "$RELEASE_DATA" | grep -q '"message":[[:space:]]*"Not Found"'; then
     echo ""
     echo -e "${BLUE}For development builds or early access:${NC}"
     echo "• Visit: https://edgewardstudios.com"
-    echo "• Email: support@edgewardstudios.com"
+    echo "• Email: support@edgemetrics.app"
     exit 1
 fi
 
@@ -388,9 +388,9 @@ case "$OS" in
             echo "  • List hardware: edgemetrics-server hardware list"
             echo ""
             echo -e "${CYAN}Documentation:${NC}"
-            echo "  • Website: https://edgewardstudios.com"
+            echo "  • Website: https://edgemetrics.app"
             echo "  • API Docs: http://$HOST:$PORT/docs (when server is running)"
-            echo "  • Support: support@edgewardstudios.com"
+            echo "  • Support: support@edgemetrics.app"
         else
             echo -e "${RED}❌ All installation methods failed${NC}"
             echo ""
@@ -398,14 +398,14 @@ case "$OS" in
             echo "1. Download from: https://github.com/$REPO/releases/latest"
             echo "2. Extract tar.gz archive manually"
             echo "3. Use native package managers if available"
-            echo "4. Contact support: support@edgewardstudios.com"
+            echo "4. Contact support: support@edgemetrics.app"
             exit 1
         fi
         ;;
     "macos")
         echo -e "${RED}❌ macOS packages not yet available${NC}"
         echo "Download manually: https://github.com/$REPO/releases/latest"
-        echo "Contact support: support@edgewardstudios.com"
+        echo "Contact support: support@edgemetrics.app"
         exit 1
         ;;
     *)

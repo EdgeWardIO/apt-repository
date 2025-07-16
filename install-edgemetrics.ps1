@@ -1,6 +1,6 @@
 # EdgeMetrics One-Command Windows Installer
 # Downloads and installs the latest EdgeMetrics release from GitHub
-# Usage: iwr -useb https://raw.githubusercontent.com/EdgeWardIO/EdgeMetrics/main/install-edgemetrics.ps1 | iex
+# Usage: iwr -useb https://raw.githubusercontent.com/EdgeWardIO/apt-repository/main/install-edgemetrics.ps1 | iex
 
 param(
     [switch]$Force,
@@ -68,12 +68,14 @@ try {
     exit 1
 }
 
-# Find Windows installers
+# Find Windows installers and binaries
 $msiAsset = $response.assets | Where-Object { $_.name -like "*.msi" } | Select-Object -First 1
 $exeAsset = $response.assets | Where-Object { $_.name -like "*.exe" -and $_.name -notlike "*troubleshoot*" } | Select-Object -First 1
+$zipAsset = $response.assets | Where-Object { $_.name -like "*windows*.zip" } | Select-Object -First 1
+$serverBinary = $response.assets | Where-Object { $_.name -eq "edgemetrics-server.exe" } | Select-Object -First 1
 
-if (-not $msiAsset -and -not $exeAsset) {
-    Write-ColorHost "❌ No Windows installers found in release" -Color Error
+if (-not $msiAsset -and -not $exeAsset -and -not $zipAsset -and -not $serverBinary) {
+    Write-ColorHost "❌ No Windows installers or binaries found in release" -Color Error
     Write-Host "Download manually: $($response.html_url)" -ForegroundColor Gray
     exit 1
 }
@@ -413,7 +415,7 @@ else {
     Write-Host "1. Download from: $($response.html_url)" -ForegroundColor Gray
     Write-Host "2. Run as Administrator if you haven't" -ForegroundColor Gray
     Write-Host "3. Check Windows Event Viewer for detailed errors" -ForegroundColor Gray
-    Write-Host "4. Report issue: https://github.com/EdgeWardIO/EdgeMetrics/issues" -ForegroundColor Gray
+    Write-Host "4. Contact support: support@edgemetrics.app" -ForegroundColor Gray
     exit 1
 }
 
@@ -456,8 +458,8 @@ Write-Host "  • Compare models: edgemetrics-server compare model1.onnx model2.
 Write-Host "  • List hardware: edgemetrics-server hardware list" -ForegroundColor White
 Write-Host ""
 Write-ColorHost "Documentation:" -Color Header
-Write-Host "  • GitHub: https://github.com/EdgeWardIO/EdgeMetrics" -ForegroundColor White
+Write-Host "  • Website: https://edgemetrics.app" -ForegroundColor White
 Write-Host "  • API Docs: http://$Host`:$Port/docs (when server is running)" -ForegroundColor White
 Write-Host ""
 Write-ColorHost "Support:" -Color Header
-Write-Host "  • Issues: https://github.com/EdgeWardIO/EdgeMetrics/issues" -ForegroundColor White
+Write-Host "  • Email: support@edgemetrics.app" -ForegroundColor White
