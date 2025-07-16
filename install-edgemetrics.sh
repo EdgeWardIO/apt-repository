@@ -126,20 +126,14 @@ VERSION=$(echo "$RELEASE_TAG" | sed 's/^v//')  # Remove 'v' prefix to get versio
 
 # Find package URLs that match the release version (exact match)
 # Use literal string matching with -F flag to avoid regex interpretation
-DEB_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.deb' | grep -i "$ARCH" | grep -F "_${VERSION}_" | head -1)
-RPM_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.rpm' | grep -i "$ARCH" | grep -F "-${VERSION}-" | head -1)
-APPIMAGE_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.AppImage' | grep -i "$ARCH" | grep -F "_${VERSION}_" | head -1)
+DEB_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.deb' | grep -i "$ARCH" | head -1)
+RPM_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.rpm' | grep -i "$ARCH" | head -1)
+TARGZ_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.tar\.gz' | grep -i "$ARCH" | head -1)
 
-# Fallback to any package if version-specific not found
-if [[ -z "$DEB_URL" ]]; then
-    DEB_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.deb' | grep -i "$ARCH" | head -1)
-fi
-if [[ -z "$RPM_URL" ]]; then
-    RPM_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.rpm' | grep -i "$ARCH" | head -1)
-fi
-if [[ -z "$APPIMAGE_URL" ]]; then
-    APPIMAGE_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.AppImage' | grep -i "$ARCH" | head -1)
-fi
+# Find server binary URL from tar.gz archive
+SERVER_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics-server' | head -1)
+CLI_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics-cli' | head -1)
+MAIN_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics[^-]' | head -1)
 
 echo -e "${GREEN}✅ Latest release: $RELEASE_TAG${NC}"
 echo ""
@@ -265,8 +259,8 @@ install_linux() {
         rm -f "$TEMP_RPM"
     fi
     
-    # Fallback to binary download (if available)
-    if [[ -n "$APPIMAGE_URL" ]]; then
+    # Fallback to binary download from tar.gz archive
+    if [[ -n "$TARGZ_URL" ]]; then
         echo -e "${BLUE}📦 Installing via binary download...${NC}"
         
         # Determine install location
@@ -277,14 +271,67 @@ install_linux() {
             mkdir -p "$INSTALL_DIR"
         fi
         
-        echo "Downloading: $(basename "$APPIMAGE_URL")"
-        if curl -fsSL "$APPIMAGE_URL" -o "$INSTALL_DIR/edgemetrics-server"; then
+        echo "Downloading: $(basename "$TARGZ_URL")"
+        TEMP_TAR=$(mktemp --suffix=.tar.gz)
+        if curl -fsSL "$TARGZ_URL" -o "$TEMP_TAR"; then
+            # Extract binaries from tar.gz
+            tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" --strip-components=0 edgemetrics-server edgemetrics-cli edgemetrics 2>/dev/null || {
+                # Try without strip-components if structure is different
+                tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" 2>/dev/null
+            }
+            
+            # Make binaries executable
+            chmod +x "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics-cli" "$INSTALL_DIR/edgemetrics" 2>/dev/null || true
+            
+            rm -f "$TEMP_TAR"
+            
+            echo -e "${GREEN}✅ EdgeMetrics binaries installed to $INSTALL_DIR${NC}"
+            
+            # Add to PATH if needed
+            if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]] && [[ $EUID -ne 0 ]]; then
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+                echo -e "${YELLOW}⚠️  Added $INSTALL_DIR to PATH in ~/.bashrc${NC}"
+                echo -e "${YELLOW}⚠️  Run 'source ~/.bashrc' or restart terminal${NC}"
+            fi
+            
+            # Post-install configuration
+            select_deployment_mode
+            if [[ "$MODE" == "service" ]]; then
+                install_systemd_service
+            fi
+            
+            return 0
+        fi
+        rm -f "$TEMP_TAR"
+    fi
+    
+    # Try direct binary download if available
+    if [[ -n "$SERVER_BINARY_URL" ]]; then
+        echo -e "${BLUE}📦 Installing server binary directly...${NC}"
+        
+        # Determine install location
+        if [[ $EUID -eq 0 ]]; then
+            INSTALL_DIR="/usr/local/bin"
+        else
+            INSTALL_DIR="$HOME/.local/bin"
+            mkdir -p "$INSTALL_DIR"
+        fi
+        
+        echo "Downloading: edgemetrics-server"
+        if curl -fsSL "$SERVER_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-server"; then
             chmod +x "$INSTALL_DIR/edgemetrics-server"
             
-            # Create symlink for backwards compatibility
-            ln -sf "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics"
+            # Download CLI binary if available
+            if [[ -n "$CLI_BINARY_URL" ]]; then
+                curl -fsSL "$CLI_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-cli" && chmod +x "$INSTALL_DIR/edgemetrics-cli"
+            fi
             
-            echo -e "${GREEN}✅ EdgeMetrics binary installed to $INSTALL_DIR/edgemetrics-server${NC}"
+            # Download main binary if available
+            if [[ -n "$MAIN_BINARY_URL" ]]; then
+                curl -fsSL "$MAIN_BINARY_URL" -o "$INSTALL_DIR/edgemetrics" && chmod +x "$INSTALL_DIR/edgemetrics"
+            fi
+            
+            echo -e "${GREEN}✅ EdgeMetrics server installed to $INSTALL_DIR/edgemetrics-server${NC}"
             
             # Add to PATH if needed
             if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]] && [[ $EUID -ne 0 ]]; then
@@ -341,22 +388,24 @@ case "$OS" in
             echo "  • List hardware: edgemetrics-server hardware list"
             echo ""
             echo -e "${CYAN}Documentation:${NC}"
-            echo "  • GitHub: https://github.com/EdgeWardIO/EdgeMetrics"
+            echo "  • Website: https://edgewardstudios.com"
             echo "  • API Docs: http://$HOST:$PORT/docs (when server is running)"
+            echo "  • Support: support@edgewardstudios.com"
         else
             echo -e "${RED}❌ All installation methods failed${NC}"
             echo ""
             echo -e "${YELLOW}Manual installation options:${NC}"
             echo "1. Download from: https://github.com/$REPO/releases/latest"
-            echo "2. Check for AppImage availability (may be >100MB, not on GitHub)"
+            echo "2. Extract tar.gz archive manually"
             echo "3. Use native package managers if available"
-            echo "4. Report issues: https://github.com/EdgeWardIO/EdgeMetrics/issues"
+            echo "4. Contact support: support@edgewardstudios.com"
             exit 1
         fi
         ;;
     "macos")
         echo -e "${RED}❌ macOS packages not yet available${NC}"
         echo "Download manually: https://github.com/$REPO/releases/latest"
+        echo "Contact support: support@edgewardstudios.com"
         exit 1
         ;;
     *)
