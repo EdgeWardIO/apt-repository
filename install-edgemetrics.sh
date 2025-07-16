@@ -14,12 +14,20 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# Installation mode
+MODE="${EDGEMETRICS_MODE:-single}"  # single, service, or ask
+PORT="${EDGEMETRICS_PORT:-8080}"     # Default port for web interface
+HOST="${EDGEMETRICS_HOST:-127.0.0.1}"  # Default host
+
 # Configuration
 REPO="EdgeWardIO/apt-repository"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 
-echo -e "${CYAN}🚀 EdgeMetrics Installer${NC}"
-echo "=========================="
+echo -e "${CYAN}🚀 EdgeMetrics Server Installer${NC}"
+echo "============================"
+echo ""
+echo -e "${BLUE}Installing EdgeMetrics web server with API${NC}"
+echo -e "${BLUE}Mode: $MODE | Port: $PORT | Host: $HOST${NC}"
 echo ""
 
 # Detect system
@@ -136,6 +144,70 @@ fi
 echo -e "${GREEN}✅ Latest release: $RELEASE_TAG${NC}"
 echo ""
 
+# Function to ask for deployment mode
+select_deployment_mode() {
+    if [[ "$MODE" == "ask" ]]; then
+        echo -e "${CYAN}Deployment Mode Selection:${NC}"
+        echo "1. Single Binary (manual start/stop)"
+        echo "2. Service Mode (systemd service)"
+        echo ""
+        while true; do
+            read -p "Select mode (1-2): " choice
+            case $choice in
+                1) MODE="single"; break ;;
+                2) MODE="service"; break ;;
+                *) echo "Please enter 1 or 2" ;;
+            esac
+        done
+    fi
+    
+    echo -e "${BLUE}Selected mode: $MODE${NC}"
+}
+
+# Function to install systemd service
+install_systemd_service() {
+    echo -e "${BLUE}🔧 Installing systemd service...${NC}"
+    
+    # Create system user if not exists
+    if ! id -u edgemetrics &>/dev/null; then
+        sudo useradd -r -s /bin/false -d /var/lib/edgemetrics edgemetrics
+        sudo mkdir -p /var/lib/edgemetrics
+        sudo chown edgemetrics:edgemetrics /var/lib/edgemetrics
+    fi
+    
+    # Create service file
+    sudo tee /etc/systemd/system/edgemetrics.service > /dev/null << EOF
+[Unit]
+Description=EdgeMetrics Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=edgemetrics
+Group=edgemetrics
+WorkingDirectory=/var/lib/edgemetrics
+ExecStart=/usr/local/bin/edgemetrics-server server start --host $HOST --port $PORT
+Restart=always
+RestartSec=10
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Enable and start service
+    sudo systemctl daemon-reload
+    sudo systemctl enable edgemetrics
+    sudo systemctl start edgemetrics
+    
+    echo -e "${GREEN}✅ EdgeMetrics service installed and started${NC}"
+    echo -e "${CYAN}Service commands:${NC}"
+    echo "  Status: sudo systemctl status edgemetrics"
+    echo "  Start:  sudo systemctl start edgemetrics"
+    echo "  Stop:   sudo systemctl stop edgemetrics"
+    echo "  Logs:   sudo journalctl -u edgemetrics -f"
+}
+
 # Install based on Linux distribution
 install_linux() {
     echo -e "${YELLOW}🐧 Installing EdgeMetrics for Linux...${NC}"
@@ -152,6 +224,13 @@ install_linux() {
             if sudo dpkg -i "$TEMP_DEB" 2>/dev/null || sudo apt-get install -f -y; then
                 rm -f "$TEMP_DEB"
                 echo -e "${GREEN}✅ EdgeMetrics installed successfully via APT${NC}"
+                
+                # Post-install configuration
+                select_deployment_mode
+                if [[ "$MODE" == "service" ]]; then
+                    install_systemd_service
+                fi
+                
                 return 0
             fi
         fi
@@ -173,50 +252,51 @@ install_linux() {
             if sudo $RPM_MANAGER install -y "$TEMP_RPM"; then
                 rm -f "$TEMP_RPM"
                 echo -e "${GREEN}✅ EdgeMetrics installed successfully via $RPM_MANAGER${NC}"
+                
+                # Post-install configuration
+                select_deployment_mode
+                if [[ "$MODE" == "service" ]]; then
+                    install_systemd_service
+                fi
+                
                 return 0
             fi
         fi
         rm -f "$TEMP_RPM"
     fi
     
-    # Fallback to AppImage (if available)
+    # Fallback to binary download (if available)
     if [[ -n "$APPIMAGE_URL" ]]; then
-        echo -e "${BLUE}📦 Installing via AppImage (universal)...${NC}"
+        echo -e "${BLUE}📦 Installing via binary download...${NC}"
         
         # Determine install location
         if [[ $EUID -eq 0 ]]; then
             INSTALL_DIR="/usr/local/bin"
-            DESKTOP_DIR="/usr/share/applications"
         else
             INSTALL_DIR="$HOME/.local/bin"
-            DESKTOP_DIR="$HOME/.local/share/applications"
-            mkdir -p "$INSTALL_DIR" "$DESKTOP_DIR"
+            mkdir -p "$INSTALL_DIR"
         fi
         
         echo "Downloading: $(basename "$APPIMAGE_URL")"
-        if curl -fsSL "$APPIMAGE_URL" -o "$INSTALL_DIR/edgemetrics"; then
-            chmod +x "$INSTALL_DIR/edgemetrics"
+        if curl -fsSL "$APPIMAGE_URL" -o "$INSTALL_DIR/edgemetrics-server"; then
+            chmod +x "$INSTALL_DIR/edgemetrics-server"
             
-            # Create desktop entry
-            cat > "$DESKTOP_DIR/edgemetrics.desktop" << EOF
-[Desktop Entry]
-Name=EdgeMetrics
-Comment=ML model performance analyzer for edge devices
-Exec=$INSTALL_DIR/edgemetrics
-Icon=edgemetrics
-Type=Application
-Categories=Development;Science;
-Terminal=false
-StartupWMClass=EdgeMetrics
-EOF
+            # Create symlink for backwards compatibility
+            ln -sf "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics"
             
-            echo -e "${GREEN}✅ EdgeMetrics AppImage installed to $INSTALL_DIR/edgemetrics${NC}"
+            echo -e "${GREEN}✅ EdgeMetrics binary installed to $INSTALL_DIR/edgemetrics-server${NC}"
             
             # Add to PATH if needed
             if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]] && [[ $EUID -ne 0 ]]; then
                 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
                 echo -e "${YELLOW}⚠️  Added $INSTALL_DIR to PATH in ~/.bashrc${NC}"
                 echo -e "${YELLOW}⚠️  Run 'source ~/.bashrc' or restart terminal${NC}"
+            fi
+            
+            # Post-install configuration
+            select_deployment_mode
+            if [[ "$MODE" == "service" ]]; then
+                install_systemd_service
             fi
             
             return 0
@@ -233,13 +313,36 @@ case "$OS" in
             echo ""
             echo -e "${CYAN}🎉 Installation completed successfully!${NC}"
             echo ""
-            echo -e "${CYAN}How to use:${NC}"
-            echo "  • Launch: edgemetrics"
-            echo "  • Help: edgemetrics --help"
-            echo "  • Version: edgemetrics --version"
+            
+            if [[ "$MODE" == "service" ]]; then
+                echo -e "${CYAN}Service Mode - EdgeMetrics is running as a system service${NC}"
+                echo -e "${GREEN}✅ Web interface: http://$HOST:$PORT${NC}"
+                echo ""
+                echo -e "${CYAN}Service Management:${NC}"
+                echo "  • Status: sudo systemctl status edgemetrics"
+                echo "  • Start:  sudo systemctl start edgemetrics"
+                echo "  • Stop:   sudo systemctl stop edgemetrics"
+                echo "  • Logs:   sudo journalctl -u edgemetrics -f"
+            else
+                echo -e "${CYAN}Single Binary Mode - Manual start/stop${NC}"
+                echo -e "${CYAN}How to use:${NC}"
+                echo "  • Start server: edgemetrics-server server start"
+                echo "  • Custom port:  edgemetrics-server server start --port 9000"
+                echo "  • Help: edgemetrics-server --help"
+                echo "  • Version: edgemetrics-server --version"
+                echo ""
+                echo -e "${GREEN}After starting, web interface available at: http://$HOST:$PORT${NC}"
+            fi
+            
+            echo ""
+            echo -e "${CYAN}CLI Commands:${NC}"
+            echo "  • Analyze model: edgemetrics-server analyze model.onnx --hardware cpu"
+            echo "  • Compare models: edgemetrics-server compare model1.onnx model2.onnx --hardware gpu"
+            echo "  • List hardware: edgemetrics-server hardware list"
             echo ""
             echo -e "${CYAN}Documentation:${NC}"
             echo "  • GitHub: https://github.com/EdgeWardIO/EdgeMetrics"
+            echo "  • API Docs: http://$HOST:$PORT/docs (when server is running)"
         else
             echo -e "${RED}❌ All installation methods failed${NC}"
             echo ""

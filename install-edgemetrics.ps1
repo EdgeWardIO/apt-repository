@@ -107,6 +107,78 @@ function Download-File {
     }
 }
 
+# Function to select deployment mode
+function Select-DeploymentMode {
+    if ($Mode -eq "ask") {
+        Write-ColorHost "Deployment Mode Selection:" -Color Header
+        Write-Host "1. Single Binary (manual start/stop)"
+        Write-Host "2. Service Mode (Windows Service)"
+        Write-Host ""
+        
+        do {
+            $choice = Read-Host "Select mode (1-2)"
+            switch ($choice) {
+                "1" { $script:Mode = "single"; break }
+                "2" { $script:Mode = "service"; break }
+                default { Write-Host "Please enter 1 or 2" }
+            }
+        } while ($choice -notin @("1", "2"))
+    }
+    
+    Write-ColorHost "Selected mode: $Mode" -Color Info
+}
+
+# Function to install Windows Service
+function Install-WindowsService {
+    param($BinaryPath)
+    
+    Write-ColorHost "🔧 Installing Windows Service..." -Color Info
+    
+    try {
+        # Check if service already exists
+        $existingService = Get-Service -Name "EdgeMetrics" -ErrorAction SilentlyContinue
+        if ($existingService) {
+            Write-ColorHost "Stopping existing service..." -Color Warning
+            Stop-Service -Name "EdgeMetrics" -Force -ErrorAction SilentlyContinue
+            
+            Write-ColorHost "Removing existing service..." -Color Warning
+            sc.exe delete "EdgeMetrics" | Out-Null
+            Start-Sleep -Seconds 2
+        }
+        
+        # Create the service
+        $serviceArgs = "server start --host $Host --port $Port"
+        $servicePath = "`"$BinaryPath`" $serviceArgs"
+        
+        Write-ColorHost "Creating EdgeMetrics service..." -Color Warning
+        $result = sc.exe create "EdgeMetrics" binPath= $servicePath start= auto DisplayName= "EdgeMetrics Web Server"
+        
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create service: $result"
+        }
+        
+        # Set service description
+        sc.exe description "EdgeMetrics" "ML model performance analyzer for edge devices" | Out-Null
+        
+        # Start the service
+        Write-ColorHost "Starting EdgeMetrics service..." -Color Warning
+        Start-Service -Name "EdgeMetrics"
+        
+        Write-ColorHost "✅ EdgeMetrics service installed and started" -Color Success
+        Write-ColorHost "Service commands:" -Color Header
+        Write-Host "  Status: Get-Service -Name EdgeMetrics"
+        Write-Host "  Start:  Start-Service -Name EdgeMetrics"
+        Write-Host "  Stop:   Stop-Service -Name EdgeMetrics"
+        Write-Host "  Logs:   Get-EventLog -LogName Application -Source EdgeMetrics"
+        
+        return $true
+    }
+    catch {
+        Write-ColorHost "❌ Service installation failed: $($_.Exception.Message)" -Color Error
+        return $false
+    }
+}
+
 # Function to install via MSI
 function Install-ViaMSI {
     param($Asset)
@@ -138,6 +210,25 @@ function Install-ViaMSI {
         
         if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
             Write-ColorHost "✅ MSI installation completed successfully!" -Color Success
+            
+            # Post-install configuration
+            Select-DeploymentMode
+            
+            # Find the installed binary
+            $possiblePaths = @(
+                "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
+                "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
+                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
+                "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
+                "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
+                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
+            )
+            $binaryPath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+            
+            if ($Mode -eq "service" -and $binaryPath) {
+                Install-WindowsService -BinaryPath $binaryPath
+            }
+            
             return $true
         } else {
             Write-ColorHost "❌ MSI installation failed with exit code: $($process.ExitCode)" -Color Error
@@ -181,6 +272,25 @@ function Install-ViaEXE {
         
         if ($process.ExitCode -eq 0) {
             Write-ColorHost "✅ NSIS installation completed successfully!" -Color Success
+            
+            # Post-install configuration
+            Select-DeploymentMode
+            
+            # Find the installed binary
+            $possiblePaths = @(
+                "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
+                "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
+                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
+                "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
+                "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
+                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
+            )
+            $binaryPath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+            
+            if ($Mode -eq "service" -and $binaryPath) {
+                Install-WindowsService -BinaryPath $binaryPath
+            }
+            
             return $true
         } else {
             Write-ColorHost "❌ NSIS installation failed with exit code: $($process.ExitCode)" -Color Error
@@ -210,12 +320,12 @@ function New-DesktopShortcut {
     $shortcutPath = Join-Path $desktopPath "EdgeMetrics.lnk"
     
     $possiblePaths = @(
+        "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
+        "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
+        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
         "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
         "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe",
-        "${env:ProgramFiles}\EdgeMetrics\EdgeMetrics.exe",
-        "${env:ProgramFiles(x86)}\EdgeMetrics\EdgeMetrics.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\EdgeMetrics.exe"
+        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
     )
     
     $executablePath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -241,12 +351,12 @@ function Test-Installation {
     Write-ColorHost "🔍 Verifying installation..." -Color Warning
     
     $possiblePaths = @(
+        "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
+        "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
+        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
         "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
         "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe",
-        "${env:ProgramFiles}\EdgeMetrics\EdgeMetrics.exe",
-        "${env:ProgramFiles(x86)}\EdgeMetrics\EdgeMetrics.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\EdgeMetrics.exe"
+        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
     )
     
     $installedPath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -318,15 +428,36 @@ Write-Host ""
 Write-ColorHost "🎉 Installation completed successfully!" -Color Success
 Write-ColorHost "Installation method: $installMethod" -Color Info
 Write-Host ""
-Write-ColorHost "How to use EdgeMetrics:" -Color Header
-Write-Host "  • Launch from Start Menu: EdgeMetrics" -ForegroundColor White
-Write-Host "  • Desktop shortcut (if created)" -ForegroundColor White
-Write-Host "  • Run from PowerShell: edgemetrics" -ForegroundColor White
+
+if ($Mode -eq "service") {
+    Write-ColorHost "Service Mode - EdgeMetrics is running as a Windows service" -Color Header
+    Write-ColorHost "✅ Web interface: http://$Host`:$Port" -Color Success
+    Write-Host ""
+    Write-ColorHost "Service Management:" -Color Header
+    Write-Host "  • Status: Get-Service -Name EdgeMetrics" -ForegroundColor White
+    Write-Host "  • Start:  Start-Service -Name EdgeMetrics" -ForegroundColor White
+    Write-Host "  • Stop:   Stop-Service -Name EdgeMetrics" -ForegroundColor White
+    Write-Host "  • Logs:   Get-EventLog -LogName Application -Source EdgeMetrics" -ForegroundColor White
+} else {
+    Write-ColorHost "Single Binary Mode - Manual start/stop" -Color Header
+    Write-ColorHost "How to use EdgeMetrics:" -Color Header
+    Write-Host "  • Start server: edgemetrics-server server start" -ForegroundColor White
+    Write-Host "  • Custom port:  edgemetrics-server server start --port 9000" -ForegroundColor White
+    Write-Host "  • Help: edgemetrics-server --help" -ForegroundColor White
+    Write-Host "  • Version: edgemetrics-server --version" -ForegroundColor White
+    Write-Host ""
+    Write-ColorHost "After starting, web interface available at: http://$Host`:$Port" -Color Success
+}
+
+Write-Host ""
+Write-ColorHost "CLI Commands:" -Color Header
+Write-Host "  • Analyze model: edgemetrics-server analyze model.onnx --hardware cpu" -ForegroundColor White
+Write-Host "  • Compare models: edgemetrics-server compare model1.onnx model2.onnx --hardware gpu" -ForegroundColor White
+Write-Host "  • List hardware: edgemetrics-server hardware list" -ForegroundColor White
 Write-Host ""
 Write-ColorHost "Documentation:" -Color Header
-Write-Host "  • Built-in help system" -ForegroundColor White
 Write-Host "  • GitHub: https://github.com/EdgeWardIO/EdgeMetrics" -ForegroundColor White
+Write-Host "  • API Docs: http://$Host`:$Port/docs (when server is running)" -ForegroundColor White
 Write-Host ""
 Write-ColorHost "Support:" -Color Header
 Write-Host "  • Issues: https://github.com/EdgeWardIO/EdgeMetrics/issues" -ForegroundColor White
-Write-Host "  • Version: edgemetrics --version" -ForegroundColor White
