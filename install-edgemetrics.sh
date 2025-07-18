@@ -42,8 +42,13 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     fi
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     OS="macos"
+    DISTRO="macos"
+elif [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+    OS="windows"
+    DISTRO="windows"
 else
     echo -e "${RED}❌ Unsupported OS: $OSTYPE${NC}"
+    echo "Supported platforms: Linux, macOS, Windows"
     exit 1
 fi
 
@@ -135,8 +140,119 @@ SERVER_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics-ser
 CLI_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics-cli' | head -1)
 MAIN_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics[^-]' | head -1)
 
+# Find Windows and macOS installers
+MSI_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.msi' | head -1)
+EXE_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.exe' | grep -v msi | head -1)
+DMG_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.dmg' | head -1)
+APP_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.app\.tar\.gz' | head -1)
+
 echo -e "${GREEN}✅ Latest release: $RELEASE_TAG${NC}"
 echo ""
+
+# Function to create GLIBC compatibility wrapper scripts
+create_wrapper_scripts() {
+    local install_dir="$1"
+    
+    echo -e "${BLUE}🔧 Creating GLIBC compatibility wrapper scripts...${NC}"
+    
+    # CLI wrapper script
+    cat > "$install_dir/edgemetrics-cli-wrapper" << 'WRAPPER_EOF'
+#!/bin/bash
+# EdgeMetrics CLI wrapper for GLIBC compatibility
+# Cleans environment to prevent snap/VS Code interference
+
+set -e
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ACTUAL_BINARY="$SCRIPT_DIR/edgemetrics-cli"
+
+# Clean ALL environment variables to ensure no snap interference
+for var in $(env | grep -E '^[A-Z_]*SNAP|VSCODE|GTK_|GDK_|GSETTINGS|GIO_|LOCPATH' | cut -d= -f1); do
+    unset "$var"
+done
+
+# Ensure clean library path
+unset LD_LIBRARY_PATH
+unset LD_PRELOAD
+
+# Set minimal, clean environment
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export HOME="${HOME:-/tmp}"
+export USER="${USER:-$(whoami)}"
+export SHELL="${SHELL:-/bin/bash}"
+
+# Execute the actual binary with all arguments
+exec "$ACTUAL_BINARY" "$@"
+WRAPPER_EOF
+    
+    # Server wrapper script
+    cat > "$install_dir/edgemetrics-server-wrapper" << 'WRAPPER_EOF'
+#!/bin/bash
+# EdgeMetrics Server wrapper for GLIBC compatibility
+# Cleans environment to prevent snap/VS Code interference
+
+set -e
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ACTUAL_BINARY="$SCRIPT_DIR/edgemetrics-server"
+
+# Clean ALL environment variables to ensure no snap interference
+for var in $(env | grep -E '^[A-Z_]*SNAP|VSCODE|GTK_|GDK_|GSETTINGS|GIO_|LOCPATH' | cut -d= -f1); do
+    unset "$var"
+done
+
+# Ensure clean library path
+unset LD_LIBRARY_PATH
+unset LD_PRELOAD
+
+# Set minimal, clean environment
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export HOME="${HOME:-/tmp}"
+export USER="${USER:-$(whoami)}"
+export SHELL="${SHELL:-/bin/bash}"
+
+# Execute the actual binary with all arguments
+exec "$ACTUAL_BINARY" "$@"
+WRAPPER_EOF
+    
+    # Desktop app wrapper script
+    cat > "$install_dir/edgemetrics-wrapper" << 'WRAPPER_EOF'
+#!/bin/bash
+# EdgeMetrics Desktop wrapper for GLIBC compatibility
+# Cleans environment to prevent snap/VS Code interference
+
+set -e
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ACTUAL_BINARY="$SCRIPT_DIR/edgemetrics"
+
+# Clean ALL environment variables to ensure no snap interference
+for var in $(env | grep -E '^[A-Z_]*SNAP|VSCODE|GTK_|GDK_|GSETTINGS|GIO_|LOCPATH' | cut -d= -f1); do
+    unset "$var"
+done
+
+# Ensure clean library path
+unset LD_LIBRARY_PATH
+unset LD_PRELOAD
+
+# Set minimal, clean environment
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export HOME="${HOME:-/tmp}"
+export USER="${USER:-$(whoami)}"
+export SHELL="${SHELL:-/bin/bash}"
+
+# Execute the actual binary with all arguments
+exec "$ACTUAL_BINARY" "$@"
+WRAPPER_EOF
+    
+    # Make wrapper scripts executable
+    chmod +x "$install_dir/edgemetrics-cli-wrapper" "$install_dir/edgemetrics-server-wrapper" "$install_dir/edgemetrics-wrapper" 2>/dev/null || true
+    
+    echo -e "${GREEN}✅ GLIBC compatibility wrappers created${NC}"
+}
 
 # Function to ask for deployment mode
 select_deployment_mode() {
@@ -180,7 +296,7 @@ Type=simple
 User=edgemetrics
 Group=edgemetrics
 WorkingDirectory=/var/lib/edgemetrics
-ExecStart=/usr/local/bin/edgemetrics-server server start --host $HOST --port $PORT
+ExecStart=/usr/local/bin/edgemetrics-server-wrapper server start --host $HOST --port $PORT
 Restart=always
 RestartSec=10
 Environment=RUST_LOG=info
@@ -217,7 +333,19 @@ install_linux() {
             echo "Installing DEB package..."
             if sudo dpkg -i "$TEMP_DEB" 2>/dev/null || sudo apt-get install -f -y; then
                 rm -f "$TEMP_DEB"
+                
+                # DEB package now installs wrapper scripts automatically
                 echo -e "${GREEN}✅ EdgeMetrics installed successfully via APT${NC}"
+                echo -e "${GREEN}📦 Wrapper scripts installed to /usr/bin/ for GLIBC compatibility${NC}"
+                echo -e "${GREEN}🔧 Actual binaries installed to /opt/edgemetrics/bin/${NC}"
+                
+                # Verify wrapper scripts are executable
+                if [[ -x "/usr/bin/edgemetrics-cli" ]]; then
+                    echo -e "${GREEN}✅ CLI wrapper script ready${NC}"
+                fi
+                if [[ -x "/usr/bin/edgemetrics-server" ]]; then
+                    echo -e "${GREEN}✅ Server wrapper script ready${NC}"
+                fi
                 
                 # Post-install configuration
                 select_deployment_mode
@@ -245,7 +373,19 @@ install_linux() {
             
             if sudo $RPM_MANAGER install -y "$TEMP_RPM"; then
                 rm -f "$TEMP_RPM"
+                
+                # RPM package now installs wrapper scripts automatically
                 echo -e "${GREEN}✅ EdgeMetrics installed successfully via $RPM_MANAGER${NC}"
+                echo -e "${GREEN}📦 Wrapper scripts installed to /usr/bin/ for GLIBC compatibility${NC}"
+                echo -e "${GREEN}🔧 Actual binaries installed to /opt/edgemetrics/bin/${NC}"
+                
+                # Verify wrapper scripts are executable
+                if [[ -x "/usr/bin/edgemetrics-cli" ]]; then
+                    echo -e "${GREEN}✅ CLI wrapper script ready${NC}"
+                fi
+                if [[ -x "/usr/bin/edgemetrics-server" ]]; then
+                    echo -e "${GREEN}✅ Server wrapper script ready${NC}"
+                fi
                 
                 # Post-install configuration
                 select_deployment_mode
@@ -279,11 +419,15 @@ install_linux() {
                 # Make binaries executable
                 chmod +x "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics-cli" "$INSTALL_DIR/edgemetrics" 2>/dev/null || true
                 
+                # Create wrapper scripts for GLIBC compatibility
+                create_wrapper_scripts "$INSTALL_DIR"
+                
                 rm -f "$TEMP_TAR"
                 
                 # Verify at least the server binary exists
                 if [[ -f "$INSTALL_DIR/edgemetrics-server" ]]; then
                     echo -e "${GREEN}✅ EdgeMetrics binaries installed to $INSTALL_DIR${NC}"
+                    echo -e "${GREEN}📦 GLIBC compatibility wrappers created${NC}"
                 else
                     echo -e "${RED}❌ Server binary not found after extraction${NC}"
                     rm -f "$TEMP_TAR"
@@ -339,7 +483,11 @@ install_linux() {
                 curl -fsSL "$MAIN_BINARY_URL" -o "$INSTALL_DIR/edgemetrics" 2>/dev/null && chmod +x "$INSTALL_DIR/edgemetrics"
             fi
             
+            # Create wrapper scripts for GLIBC compatibility
+            create_wrapper_scripts "$INSTALL_DIR"
+            
             echo -e "${GREEN}✅ EdgeMetrics server installed to $INSTALL_DIR/edgemetrics-server${NC}"
+            echo -e "${GREEN}📦 GLIBC compatibility wrappers created${NC}"
             
             # Add to PATH if needed
             if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]] && [[ $EUID -ne 0 ]]; then
@@ -363,6 +511,167 @@ install_linux() {
     return 1
 }
 
+# Function to create Windows wrapper scripts
+create_windows_wrapper_scripts() {
+    local install_dir="$1"
+    
+    echo -e "${BLUE}🔧 Creating Windows wrapper scripts...${NC}"
+    
+    # CLI wrapper batch file
+    cat > "$install_dir/edgemetrics-cli.bat" << 'WRAPPER_EOF'
+@echo off
+REM EdgeMetrics CLI wrapper for Windows
+REM Ensures clean environment for compatibility
+
+setlocal EnableDelayedExpansion
+
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "ACTUAL_BINARY=%SCRIPT_DIR%edgemetrics-cli.exe"
+
+REM Clean environment variables that might cause issues
+set "VSCODE_PID="
+set "VSCODE_CWD="
+set "ELECTRON_RUN_AS_NODE="
+
+REM Execute the actual binary with all arguments
+"%ACTUAL_BINARY%" %*
+WRAPPER_EOF
+    
+    # Server wrapper batch file
+    cat > "$install_dir/edgemetrics-server.bat" << 'WRAPPER_EOF'
+@echo off
+REM EdgeMetrics Server wrapper for Windows
+REM Ensures clean environment for compatibility
+
+setlocal EnableDelayedExpansion
+
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "ACTUAL_BINARY=%SCRIPT_DIR%edgemetrics-server.exe"
+
+REM Clean environment variables that might cause issues
+set "VSCODE_PID="
+set "VSCODE_CWD="
+set "ELECTRON_RUN_AS_NODE="
+
+REM Execute the actual binary with all arguments
+"%ACTUAL_BINARY%" %*
+WRAPPER_EOF
+    
+    # Desktop app wrapper batch file  
+    cat > "$install_dir/edgemetrics.bat" << 'WRAPPER_EOF'
+@echo off
+REM EdgeMetrics Desktop wrapper for Windows
+REM Ensures clean environment for compatibility
+
+setlocal EnableDelayedExpansion
+
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "ACTUAL_BINARY=%SCRIPT_DIR%edgemetrics.exe"
+
+REM Clean environment variables that might cause issues
+set "VSCODE_PID="
+set "VSCODE_CWD="
+set "ELECTRON_RUN_AS_NODE="
+
+REM Execute the actual binary with all arguments
+"%ACTUAL_BINARY%" %*
+WRAPPER_EOF
+    
+    echo -e "${GREEN}✅ Windows wrapper scripts created${NC}"
+}
+
+# Install for Windows
+install_windows() {
+    echo -e "${YELLOW}🪟 Installing EdgeMetrics for Windows...${NC}"
+    
+    # Try MSI installer first
+    if [[ -n "$MSI_URL" ]]; then
+        echo -e "${BLUE}📦 MSI installer available${NC}"
+        echo "Download and run: $(basename "$MSI_URL")"
+        echo "URL: $MSI_URL"
+        echo ""
+        echo -e "${CYAN}The MSI installer will:${NC}"
+        echo "  • Install EdgeMetrics to Program Files"
+        echo "  • Create Start Menu shortcuts"
+        echo "  • Add to Windows PATH"
+        echo "  • Install Windows service (optional)"
+        return 0
+    fi
+    
+    # Fallback to EXE installer
+    if [[ -n "$EXE_URL" ]]; then
+        echo -e "${BLUE}📦 EXE installer available${NC}"
+        echo "Download and run: $(basename "$EXE_URL")"
+        echo "URL: $EXE_URL"
+        return 0
+    fi
+    
+    echo -e "${RED}❌ No Windows installer found${NC}"
+    return 1
+}
+
+# Install for macOS
+install_macos() {
+    echo -e "${YELLOW}🍎 Installing EdgeMetrics for macOS...${NC}"
+    
+    # Try DMG installer first
+    if [[ -n "$DMG_URL" ]]; then
+        echo -e "${BLUE}📦 DMG installer available${NC}"
+        echo "Download and install: $(basename "$DMG_URL")"
+        echo "URL: $DMG_URL"
+        echo ""
+        echo -e "${CYAN}The DMG installer will:${NC}"
+        echo "  • Install EdgeMetrics.app to Applications"
+        echo "  • Create Launchpad shortcuts"
+        echo "  • Install command-line tools"
+        echo "  • Set up LaunchAgent service (optional)"
+        return 0
+    fi
+    
+    # Fallback to app bundle
+    if [[ -n "$APP_URL" ]]; then
+        echo -e "${BLUE}📦 App bundle available${NC}"
+        
+        # Determine install location
+        if [[ $EUID -eq 0 ]]; then
+            INSTALL_DIR="/Applications"
+        else
+            INSTALL_DIR="$HOME/Applications"
+            mkdir -p "$INSTALL_DIR"
+        fi
+        
+        echo "Downloading: $(basename "$APP_URL")"
+        TEMP_TAR=$(mktemp --suffix=.tar.gz)
+        if curl -fsSL "$APP_URL" -o "$TEMP_TAR"; then
+            if tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR"; then
+                rm -f "$TEMP_TAR"
+                echo -e "${GREEN}✅ EdgeMetrics.app installed to $INSTALL_DIR${NC}"
+                
+                # Install command-line tools
+                BIN_DIR="/usr/local/bin"
+                if [[ $EUID -ne 0 ]]; then
+                    BIN_DIR="$HOME/.local/bin"
+                    mkdir -p "$BIN_DIR"
+                fi
+                
+                # Create CLI symlinks
+                ln -sf "$INSTALL_DIR/EdgeMetrics.app/Contents/MacOS/edgemetrics-cli" "$BIN_DIR/edgemetrics-cli" 2>/dev/null || true
+                ln -sf "$INSTALL_DIR/EdgeMetrics.app/Contents/MacOS/edgemetrics-server" "$BIN_DIR/edgemetrics-server" 2>/dev/null || true
+                
+                echo -e "${GREEN}✅ Command-line tools installed to $BIN_DIR${NC}"
+                return 0
+            fi
+        fi
+        rm -f "$TEMP_TAR"
+    fi
+    
+    echo -e "${RED}❌ No macOS installer found${NC}"
+    return 1
+}
+
 # Install based on OS
 case "$OS" in
     "linux")
@@ -383,19 +692,25 @@ case "$OS" in
             else
                 echo -e "${CYAN}Single Binary Mode - Manual start/stop${NC}"
                 echo -e "${CYAN}How to use:${NC}"
-                echo "  • Start server: edgemetrics-server start --host 127.0.0.1 --port 8080 --open"
-                echo "  • Custom port:  edgemetrics-server start --host 127.0.0.1 --port 9000 --open"
-                echo "  • Help: edgemetrics-server --help"
-                echo "  • Version: edgemetrics-server --version"
+                echo "  • Start server: edgemetrics-server-wrapper start --host 127.0.0.1 --port 8080 --open"
+                echo "  • Custom port:  edgemetrics-server-wrapper start --host 127.0.0.1 --port 9000 --open"
+                echo "  • Help: edgemetrics-server-wrapper --help"
+                echo "  • Version: edgemetrics-server-wrapper --version"
+                echo ""
+                echo -e "${CYAN}GLIBC Compatibility:${NC}"
+                echo "  • ✅ Automatic compatibility with snap environments (VS Code, etc.)"
+                echo "  • ✅ Works across all Linux distributions"
+                echo "  • ✅ No manual configuration required"
                 echo ""
                 echo -e "${GREEN}After starting, web interface available at: http://$HOST:$PORT${NC}"
             fi
             
             echo ""
             echo -e "${CYAN}CLI Commands:${NC}"
-            echo "  • Analyze model: edgemetrics-server analyze model.onnx --hardware cpu"
-            echo "  • Compare models: edgemetrics-server compare model1.onnx model2.onnx --hardware gpu"
-            echo "  • List hardware: edgemetrics-server hardware list"
+            echo "  • Analyze model: edgemetrics-server-wrapper analyze model.onnx --hardware cpu"
+            echo "  • Compare models: edgemetrics-server-wrapper compare model1.onnx model2.onnx --hardware gpu"
+            echo "  • List hardware: edgemetrics-server-wrapper hardware list"
+            echo "  • CLI tool: edgemetrics-cli-wrapper [command] [options]"
             echo ""
             echo -e "${CYAN}Documentation:${NC}"
             echo "  • Website: https://edgemetrics.app"
@@ -413,10 +728,34 @@ case "$OS" in
         fi
         ;;
     "macos")
-        echo -e "${RED}❌ macOS packages not yet available${NC}"
-        echo "Download manually: https://github.com/$REPO/releases/latest"
-        echo "Contact support: support@edgemetrics.app"
-        exit 1
+        if install_macos; then
+            echo ""
+            echo -e "${CYAN}🎉 macOS installation information provided!${NC}"
+            echo ""
+            echo -e "${CYAN}After installation:${NC}"
+            echo "  • Launch from Applications folder or Launchpad"
+            echo "  • CLI tools: edgemetrics-cli, edgemetrics-server"
+            echo "  • Documentation: https://edgemetrics.app/docs"
+        else
+            echo -e "${RED}❌ macOS installation failed${NC}"
+            echo "Download manually: https://github.com/$REPO/releases/latest"
+            exit 1
+        fi
+        ;;
+    "windows")
+        if install_windows; then
+            echo ""
+            echo -e "${CYAN}🎉 Windows installation information provided!${NC}"
+            echo ""
+            echo -e "${CYAN}After installation:${NC}"
+            echo "  • Launch from Start Menu or desktop shortcut"
+            echo "  • Command Prompt: edgemetrics-cli, edgemetrics-server"
+            echo "  • Documentation: https://edgemetrics.app/docs"
+        else
+            echo -e "${RED}❌ Windows installation failed${NC}"
+            echo "Download manually: https://github.com/$REPO/releases/latest"
+            exit 1
+        fi
         ;;
     *)
         echo -e "${RED}❌ Unsupported operating system: $OS${NC}"
