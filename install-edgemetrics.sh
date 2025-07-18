@@ -135,10 +135,10 @@ DEB_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.deb' | grep -i "$ARCH" 
 RPM_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.rpm' | grep -i "$ARCH" | head -1)
 TARGZ_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.tar\.gz' | grep -i "$ARCH" | head -1)
 
-# Find server binary URL from tar.gz archive
+# Find server and CLI binary URLs from tar.gz archive
 SERVER_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics-server' | head -1)
 CLI_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics-cli' | head -1)
-MAIN_BINARY_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*edgemetrics[^-]' | head -1)
+# Note: Desktop app binary (edgemetrics) removed in favor of web-based interface
 
 # Find Windows and macOS installers
 MSI_URL=$(echo "$RELEASE_DATA" | grep -o 'https://[^"]*\.msi' | head -1)
@@ -217,39 +217,11 @@ export SHELL="${SHELL:-/bin/bash}"
 exec "$ACTUAL_BINARY" "$@"
 WRAPPER_EOF
     
-    # Desktop app wrapper script
-    cat > "$install_dir/edgemetrics-wrapper" << 'WRAPPER_EOF'
-#!/bin/bash
-# EdgeMetrics Desktop wrapper for GLIBC compatibility
-# Cleans environment to prevent snap/VS Code interference
-
-set -e
-
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ACTUAL_BINARY="$SCRIPT_DIR/edgemetrics"
-
-# Clean ALL environment variables to ensure no snap interference
-for var in $(env | grep -E '^[A-Z_]*SNAP|VSCODE|GTK_|GDK_|GSETTINGS|GIO_|LOCPATH' | cut -d= -f1); do
-    unset "$var"
-done
-
-# Ensure clean library path
-unset LD_LIBRARY_PATH
-unset LD_PRELOAD
-
-# Set minimal, clean environment
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export HOME="${HOME:-/tmp}"
-export USER="${USER:-$(whoami)}"
-export SHELL="${SHELL:-/bin/bash}"
-
-# Execute the actual binary with all arguments
-exec "$ACTUAL_BINARY" "$@"
-WRAPPER_EOF
+    # Note: Desktop app wrapper removed - EdgeMetrics now runs as web-based service
+    # Access the web interface at http://localhost:8081 after starting the server
     
     # Make wrapper scripts executable
-    chmod +x "$install_dir/edgemetrics-cli-wrapper" "$install_dir/edgemetrics-server-wrapper" "$install_dir/edgemetrics-wrapper" 2>/dev/null || true
+    chmod +x "$install_dir/edgemetrics-cli-wrapper" "$install_dir/edgemetrics-server-wrapper" 2>/dev/null || true
     
     echo -e "${GREEN}✅ GLIBC compatibility wrappers created${NC}"
 }
@@ -414,10 +386,10 @@ install_linux() {
         echo "Downloading: $(basename "$TARGZ_URL")"
         TEMP_TAR=$(mktemp --suffix=.tar.gz)
         if curl -fsSL "$TARGZ_URL" -o "$TEMP_TAR"; then
-            # Extract binaries from tar.gz
-            if tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" --strip-components=0 edgemetrics-server edgemetrics-cli edgemetrics 2>/dev/null || tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" 2>/dev/null; then
+            # Extract binaries from tar.gz (server and CLI only)
+            if tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" --strip-components=0 edgemetrics-server edgemetrics-cli 2>/dev/null || tar -xzf "$TEMP_TAR" -C "$INSTALL_DIR" 2>/dev/null; then
                 # Make binaries executable
-                chmod +x "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics-cli" "$INSTALL_DIR/edgemetrics" 2>/dev/null || true
+                chmod +x "$INSTALL_DIR/edgemetrics-server" "$INSTALL_DIR/edgemetrics-cli" 2>/dev/null || true
                 
                 # Create wrapper scripts for GLIBC compatibility
                 create_wrapper_scripts "$INSTALL_DIR"
@@ -478,10 +450,7 @@ install_linux() {
                 curl -fsSL "$CLI_BINARY_URL" -o "$INSTALL_DIR/edgemetrics-cli" 2>/dev/null && chmod +x "$INSTALL_DIR/edgemetrics-cli"
             fi
             
-            # Download main binary if available
-            if [[ -n "$MAIN_BINARY_URL" ]]; then
-                curl -fsSL "$MAIN_BINARY_URL" -o "$INSTALL_DIR/edgemetrics" 2>/dev/null && chmod +x "$INSTALL_DIR/edgemetrics"
-            fi
+            # Note: Desktop app binary removed - EdgeMetrics now web-based only
             
             # Create wrapper scripts for GLIBC compatibility
             create_wrapper_scripts "$INSTALL_DIR"
@@ -559,26 +528,8 @@ REM Execute the actual binary with all arguments
 "%ACTUAL_BINARY%" %*
 WRAPPER_EOF
     
-    # Desktop app wrapper batch file  
-    cat > "$install_dir/edgemetrics.bat" << 'WRAPPER_EOF'
-@echo off
-REM EdgeMetrics Desktop wrapper for Windows
-REM Ensures clean environment for compatibility
-
-setlocal EnableDelayedExpansion
-
-REM Get the directory where this script is located
-set "SCRIPT_DIR=%~dp0"
-set "ACTUAL_BINARY=%SCRIPT_DIR%edgemetrics.exe"
-
-REM Clean environment variables that might cause issues
-set "VSCODE_PID="
-set "VSCODE_CWD="
-set "ELECTRON_RUN_AS_NODE="
-
-REM Execute the actual binary with all arguments
-"%ACTUAL_BINARY%" %*
-WRAPPER_EOF
+    # Note: Desktop app wrapper removed - EdgeMetrics now web-based only
+    # Access the web interface at http://localhost:8081 after starting the server
     
     echo -e "${GREEN}✅ Windows wrapper scripts created${NC}"
 }
@@ -692,8 +643,9 @@ case "$OS" in
             else
                 echo -e "${CYAN}Single Binary Mode - Manual start/stop${NC}"
                 echo -e "${CYAN}How to use:${NC}"
-                echo "  • Start server: edgemetrics-server-wrapper start --host 127.0.0.1 --port 8080 --open"
-                echo "  • Custom port:  edgemetrics-server-wrapper start --host 127.0.0.1 --port 9000 --open"
+                echo "  • Start server: edgemetrics-server-wrapper server start --host 127.0.0.1 --port 8081"
+                echo "  • Open in browser: edgemetrics-server-wrapper server start --host 127.0.0.1 --port 8081 --open"
+                echo "  • Custom port:  edgemetrics-server-wrapper server start --host 127.0.0.1 --port 9000 --open"
                 echo "  • Help: edgemetrics-server-wrapper --help"
                 echo "  • Version: edgemetrics-server-wrapper --version"
                 echo ""
@@ -707,9 +659,9 @@ case "$OS" in
             
             echo ""
             echo -e "${CYAN}CLI Commands:${NC}"
-            echo "  • Analyze model: edgemetrics-server-wrapper analyze model.onnx --hardware cpu"
-            echo "  • Compare models: edgemetrics-server-wrapper compare model1.onnx model2.onnx --hardware gpu"
-            echo "  • List hardware: edgemetrics-server-wrapper hardware list"
+            echo "  • Analyze model: edgemetrics-cli-wrapper analyze model.onnx --hardware cpu"
+            echo "  • Compare models: edgemetrics-cli-wrapper compare model1.onnx model2.onnx --hardware gpu"
+            echo "  • List hardware: edgemetrics-cli-wrapper hardware list"
             echo "  • CLI tool: edgemetrics-cli-wrapper [command] [options]"
             echo ""
             echo -e "${CYAN}Documentation:${NC}"
@@ -733,7 +685,8 @@ case "$OS" in
             echo -e "${CYAN}🎉 macOS installation information provided!${NC}"
             echo ""
             echo -e "${CYAN}After installation:${NC}"
-            echo "  • Launch from Applications folder or Launchpad"
+            echo "  • Start server: edgemetrics-server server start --port 8081 --open"
+            echo "  • Web interface: http://localhost:8081"
             echo "  • CLI tools: edgemetrics-cli, edgemetrics-server"
             echo "  • Documentation: https://edgemetrics.app/docs"
         else
@@ -748,7 +701,8 @@ case "$OS" in
             echo -e "${CYAN}🎉 Windows installation information provided!${NC}"
             echo ""
             echo -e "${CYAN}After installation:${NC}"
-            echo "  • Launch from Start Menu or desktop shortcut"
+            echo "  • Start server: edgemetrics-server server start --port 8081 --open"
+            echo "  • Web interface: http://localhost:8081"
             echo "  • Command Prompt: edgemetrics-cli, edgemetrics-server"
             echo "  • Documentation: https://edgemetrics.app/docs"
         else

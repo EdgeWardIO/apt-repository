@@ -216,14 +216,11 @@ function Install-ViaMSI {
             # Post-install configuration
             Select-DeploymentMode
             
-            # Find the installed binary
+            # Find the installed binary (server only)
             $possiblePaths = @(
                 "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
                 "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
-                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
-                "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
-                "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
-                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
+                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe"
             )
             $binaryPath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
             
@@ -278,14 +275,11 @@ function Install-ViaEXE {
             # Post-install configuration
             Select-DeploymentMode
             
-            # Find the installed binary
+            # Find the installed binary (server only)
             $possiblePaths = @(
                 "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
                 "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
-                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
-                "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
-                "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
-                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
+                "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe"
             )
             $binaryPath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
             
@@ -324,10 +318,7 @@ function New-DesktopShortcut {
     $possiblePaths = @(
         "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
         "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
-        "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
-        "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
+        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe"
     )
     
     $executablePath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -337,7 +328,8 @@ function New-DesktopShortcut {
             $shell = New-Object -ComObject WScript.Shell
             $shortcut = $shell.CreateShortcut($shortcutPath)
             $shortcut.TargetPath = $executablePath
-            $shortcut.Description = "ML model performance analyzer for edge devices"
+            $shortcut.Arguments = "server start --port 8081 --open"
+            $shortcut.Description = "EdgeMetrics Web Server - ML model performance analyzer"
             $shortcut.WorkingDirectory = Split-Path $executablePath -Parent
             $shortcut.Save()
             Write-ColorHost "✅ Created desktop shortcut" -Color Success
@@ -355,10 +347,7 @@ function Test-Installation {
     $possiblePaths = @(
         "${env:ProgramFiles}\EdgeMetrics\edgemetrics-server.exe",
         "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics-server.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe",
-        "${env:ProgramFiles}\EdgeMetrics\edgemetrics.exe",
-        "${env:ProgramFiles(x86)}\EdgeMetrics\edgemetrics.exe",
-        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics.exe"
+        "${env:LOCALAPPDATA}\Programs\EdgeMetrics\edgemetrics-server.exe"
     )
     
     $installedPath = $possiblePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -443,7 +432,8 @@ if ($Mode -eq "service") {
 } else {
     Write-ColorHost "Single Binary Mode - Manual start/stop" -Color Header
     Write-ColorHost "How to use EdgeMetrics:" -Color Header
-    Write-Host "  • Start server: edgemetrics-server server start" -ForegroundColor White
+    Write-Host "  • Start server: edgemetrics-server server start --port 8081" -ForegroundColor White
+    Write-Host "  • Open in browser: edgemetrics-server server start --port 8081 --open" -ForegroundColor White
     Write-Host "  • Custom port:  edgemetrics-server server start --port 9000" -ForegroundColor White
     Write-Host "  • Help: edgemetrics-server --help" -ForegroundColor White
     Write-Host "  • Version: edgemetrics-server --version" -ForegroundColor White
@@ -453,9 +443,9 @@ if ($Mode -eq "service") {
 
 Write-Host ""
 Write-ColorHost "CLI Commands:" -Color Header
-Write-Host "  • Analyze model: edgemetrics-server analyze model.onnx --hardware cpu" -ForegroundColor White
-Write-Host "  • Compare models: edgemetrics-server compare model1.onnx model2.onnx --hardware gpu" -ForegroundColor White
-Write-Host "  • List hardware: edgemetrics-server hardware list" -ForegroundColor White
+Write-Host "  • Analyze model: edgemetrics-cli analyze model.onnx --hardware cpu" -ForegroundColor White
+Write-Host "  • Compare models: edgemetrics-cli compare model1.onnx model2.onnx --hardware gpu" -ForegroundColor White
+Write-Host "  • List hardware: edgemetrics-cli hardware list" -ForegroundColor White
 Write-Host ""
 Write-ColorHost "Documentation:" -Color Header
 Write-Host "  • Website: https://edgemetrics.app" -ForegroundColor White
