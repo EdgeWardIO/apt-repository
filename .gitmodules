@@ -1,0 +1,3 @@
+[submodule "apt-repository"]
+	path = apt-repository
+	url = https://github.com/EdgeWardIO/apt-repository.git
