@@ -1,0 +1,131 @@
+# High Availability POC Configuration
+# This profile is used when running the HA cluster demonstration
+
+spring:
+  application:
+    name: sequential-number-ha-poc-cluster
+
+# Server port will be overridden by individual node configurations
+server:
+  port: ${INSTANCE_PORT:8081}
+
+# HA-Specific Configuration  
+sequence:
+  # Instance Configuration (overridden by individual nodes)
+  instance:
+    id: ${INSTANCE_ID:node-1}
+    name: ${INSTANCE_NAME:Primary Instance}
+    priority: ${INSTANCE_PRIORITY:1}
+    role: ${INSTANCE_ROLE:primary}
+    
+  # HA Configuration
+  ha:
+    enabled: true
+    cluster-size: 3
+    health-check-interval: "PT5S"
+    failover-timeout: "PT10S" 
+    consensus-timeout: "PT15S"
+    leader-election-enabled: true
+    split-brain-detection: true
+    
+  # etcd Cluster Configuration
+  etcd:
+    embedded: true
+    cluster-name: "sequence-ha-cluster"
+    cluster-token: "sequence-cluster-token-2024"
+    data-directory: "data/etcd-cluster/${sequence.instance.id}"
+    
+    # 3-node etcd cluster
+    endpoints: "http://localhost:2379,http://localhost:2389,http://localhost:2399"
+    
+    # Node-specific etcd configuration
+    node:
+      client-port: ${ETCD_CLIENT_PORT:2379}
+      peer-port: ${ETCD_PEER_PORT:2380}
+      data-dir: "data/etcd-cluster/${sequence.instance.id}"
+      
+    # Connection settings
+    connection-timeout: "PT5S"
+    request-timeout: "PT10S"
+    retry-max-attempts: 3
+    retry-delay: "PT1S"
+    
+  # Load Balancer Configuration
+  load-balancer:
+    type: "embedded"  # or "nginx" if available
+    enabled: true
+    health-check-path: "/actuator/health"
+    health-check-interval: "PT5S"
+    
+    # Node weights for load balancing
+    nodes:
+      - id: "node-1"
+        url: "http://localhost:8081"
+        weight: 3
+        primary: true
+      - id: "node-2" 
+        url: "http://localhost:8082"
+        weight: 2
+        primary: false
+      - id: "node-3"
+        url: "http://localhost:8083"
+        weight: 1
+        primary: false
+        
+  # Enhanced monitoring for HA
+  monitoring:
+    enabled: true
+    metrics-collection-interval: "PT2S"
+    health-check-interval: "PT5S"
+    cluster-metrics-enabled: true
+    consensus-metrics-enabled: true
+    
+  # HA Demo Configuration
+  demo:
+    ha-demos-enabled: true
+    failover-simulation-enabled: true
+    network-partition-simulation: false  # Simplified for POC
+    chaos-engineering: false  # Disabled for POC
+
+# Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      etcd-client:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 10
+        ring-buffer-size-in-half-open-state: 3
+        wait-duration-in-open-state: 10s
+        failure-rate-threshold: 50
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+      sequence-generation:
+        register-health-indicator: true
+        ring-buffer-size-in-closed-state: 20
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 15s
+        
+  retry:
+    instances:
+      etcd-operation:
+        max-attempts: 3
+        wait-duration: 1s
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          
+  timelimiter:
+    instances:
+      sequence-generation:
+        timeout-duration: 5s
+
+# Enhanced logging for HA
+logging:
+  level:
+    com.demo.sequence: DEBUG
+    io.etcd: INFO
+    org.springframework.cloud.gateway: DEBUG
+    resilience4j: DEBUG
+  file:
+    name: "data/logs/sequential-number-ha-${sequence.instance.id}.log"

@@ -1,0 +1,173 @@
+# Base Application Configuration
+spring:
+  application:
+    name: sequential-number-ha-poc
+  main:
+    banner-mode: console
+    allow-bean-definition-overriding: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: true
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: NON_NULL
+
+# Server Configuration
+server:
+  port: 8080
+  servlet:
+    context-path: ""
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,text/css,text/javascript
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# Management & Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,info,prometheus,sequence,ha-status
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active:default}
+
+# Logging Configuration
+logging:
+  level:
+    com.demo.sequence: DEBUG
+    io.etcd: INFO
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: data/logs/sequential-number-poc.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 10
+
+# Application-Specific Configuration
+sequence:
+  # Instance Configuration
+  instance:
+    id: "single-node"
+    name: "Single Node Instance"
+    priority: 1
+    
+  # Core Sequence Configuration
+  core:
+    global-counter-start: 1
+    gap-recovery-enabled: true
+    max-gap-retention: 1000
+    sequence-validation-enabled: true
+    
+  # Site and Partition Configuration
+  sites:
+    - id: "site-1"
+      name: "Primary Site"
+      description: "Main billing site"
+      partitions: 
+        - id: "partition-a"
+          name: "Partition A"
+          description: "High volume partition"
+        - id: "partition-b"
+          name: "Partition B" 
+          description: "Standard volume partition"
+    - id: "site-2"
+      name: "Secondary Site"
+      description: "Backup billing site"
+      partitions:
+        - id: "partition-a"
+          name: "Partition A"
+          description: "High volume partition"
+        - id: "partition-b"
+          name: "Partition B"
+          description: "Standard volume partition"
+  
+  # Invoice Type Configuration
+  invoice-types:
+    - type: "on-cycle"
+      name: "On-Cycle Invoice"
+      description: "Regular billing cycle invoice"
+      strategy: "global-sequential"
+      enabled: true
+      gap-handling: "recover"
+    - type: "off-cycle"
+      name: "Off-Cycle Invoice"
+      description: "Out-of-cycle billing invoice"
+      strategy: "global-sequential"
+      enabled: true
+      gap-handling: "recover"
+    - type: "simulated"
+      name: "Simulated Invoice"
+      description: "Test/preview invoice"
+      strategy: "global-sequential"
+      enabled: true
+      gap-handling: "optional"
+    - type: "suppressed"
+      name: "Suppressed Invoice"
+      description: "Generated but not delivered invoice"
+      strategy: "global-sequential"
+      enabled: true
+      gap-handling: "auto-release"
+      auto-release-timeout: "PT30M"  # 30 minutes
+  
+  # Numbering Strategies
+  strategies:
+    global-sequential:
+      name: "Global Sequential Strategy"
+      description: "Single continuous sequence across all sites and partitions"
+      type: "GLOBAL_SEQUENTIAL"
+      start-number: 1
+      increment: 1
+      gap-recovery: true
+      format: "{number}"
+      validation:
+        min-value: 1
+        max-value: 999999999
+      
+  # etcd Configuration
+  etcd:
+    embedded: true
+    cluster-name: "sequence-cluster"
+    data-directory: "data/etcd-cluster"
+    client-port: 2379
+    peer-port: 2380
+    endpoints: "http://localhost:2379"
+    connection-timeout: "PT5S"
+    request-timeout: "PT10S"
+    
+  # Performance Configuration
+  performance:
+    concurrent-threads: 10
+    batch-size: 1
+    connection-pool-size: 20
+    request-timeout: "PT30S"
+    
+  # Monitoring Configuration
+  monitoring:
+    enabled: true
+    metrics-collection-interval: "PT5S"
+    health-check-interval: "PT10S"
+    
+  # Demo Configuration
+  demo:
+    auto-start-demos: false
+    demo-data-enabled: true
+    load-test-enabled: true

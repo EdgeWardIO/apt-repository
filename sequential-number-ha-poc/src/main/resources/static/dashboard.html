@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sequential Number Generation Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .header .subtitle {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .card h2 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .sequence-panel {
+            grid-row: span 2;
+        }
+        
+        .site-partition-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .site-card {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 10px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .site-card h3 {
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 0.25rem;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        .btn-success { background: linear-gradient(135deg, #27ae60, #229954); }
+        .btn-warning { background: linear-gradient(135deg, #f39c12, #e67e22); }
+        .btn-danger { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+        
+        .current-sequence {
+            text-align: center;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 15px;
+            color: white;
+        }
+        
+        .sequence-display {
+            font-size: 3rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .sequence-details {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+        }
+        
+        .sequence-history {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 1rem;
+            background: #f8f9fa;
+        }
+        
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        
+        .sequence-number {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #2c3e50;
+        }
+        
+        .sequence-info {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+        }
+        
+        .gap-badge {
+            background: #e74c3c;
+            color: white;
+            padding: 0.2rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+        }
+        
+        .demo-section {
+            margin-top: 2rem;
+        }
+        
+        .demo-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.5rem;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 1rem 0;
+        }
+        
+        .health-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .health-healthy {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .health-degraded {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .health-down {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            opacity: 0.7;
+        }
+        
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .demo-result {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .demo-step {
+            padding: 0.25rem 0;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .demo-success {
+            color: #27ae60;
+        }
+        
+        .demo-error {
+            color: #e74c3c;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+            }
+            
+            .site-partition-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <i class="fas fa-chart-line"></i>
+            Sequential Number Generation Dashboard
+        </h1>
+        <div class="subtitle">Real-time monitoring and demonstration platform</div>
+    </div>
+
+    <div class="container">
+        <!-- Left Panel: Sequence Generation -->
+        <div class="card sequence-panel">
+            <h2>
+                <i class="fas fa-hashtag"></i>
+                Generate Invoice Numbers
+            </h2>
+            
+            <div class="site-partition-grid">
+                <div class="site-card">
+                    <h3><i class="fas fa-building"></i> Site-1</h3>
+                    <button class="btn" onclick="generateSequence('site-1', 'partition-a', 'on-cycle')">
+                        <i class="fas fa-plus"></i> Partition-A: On-Cycle
+                    </button>
+                    <button class="btn" onclick="generateSequence('site-1', 'partition-b', 'off-cycle')">
+                        <i class="fas fa-plus"></i> Partition-B: Off-Cycle
+                    </button>
+                    <button class="btn btn-warning" onclick="generateSequence('site-1', 'partition-a', 'simulated')">
+                        <i class="fas fa-flask"></i> Partition-A: Simulated
+                    </button>
+                </div>
+                
+                <div class="site-card">
+                    <h3><i class="fas fa-building"></i> Site-2</h3>
+                    <button class="btn" onclick="generateSequence('site-2', 'partition-a', 'on-cycle')">
+                        <i class="fas fa-plus"></i> Partition-A: On-Cycle
+                    </button>
+                    <button class="btn" onclick="generateSequence('site-2', 'partition-b', 'off-cycle')">
+                        <i class="fas fa-plus"></i> Partition-B: Off-Cycle
+                    </button>
+                    <button class="btn btn-danger" onclick="generateSequence('site-2', 'partition-b', 'suppressed')">
+                        <i class="fas fa-eye-slash"></i> Partition-B: Suppressed
+                    </button>
+                </div>
+            </div>
+            
+            <div class="current-sequence">
+                <div class="sequence-display" id="lastSequence">-</div>
+                <div class="sequence-details" id="sequenceDetails">Click a button above to generate your first sequence number</div>
+            </div>
+            
+            <div class="demo-section">
+                <h3><i class="fas fa-play-circle"></i> Quick Demonstrations</h3>
+                <div class="demo-buttons">
+                    <button class="btn btn-success" onclick="runDemo('basic')">
+                        <i class="fas fa-rocket"></i> Basic Demo
+                    </button>
+                    <button class="btn btn-success" onclick="runDemo('concurrent')">
+                        <i class="fas fa-bolt"></i> Concurrent Test
+                    </button>
+                    <button class="btn btn-warning" onclick="runDemo('gaps')">
+                        <i class="fas fa-puzzle-piece"></i> Gap Management
+                    </button>
+                    <button class="btn btn-danger" onclick="runDemo('load-test')">
+                        <i class="fas fa-tachometer-alt"></i> Load Test
+                    </button>
+                </div>
+                
+                <div id="demoResult" class="demo-result" style="display: none;"></div>
+            </div>
+        </div>
+        
+        <!-- Right Top: System Statistics -->
+        <div class="card">
+            <h2>
+                <i class="fas fa-chart-bar"></i>
+                System Statistics
+                <span class="loading" id="statsLoading" style="display: none;">
+                    <div class="spinner"></div>
+                    Loading...
+                </span>
+            </h2>
+            
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <div class="stat-value" id="currentCounter">-</div>
+                    <div class="stat-label">Current Counter</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalGenerated">-</div>
+                    <div class="stat-label">Total Generated</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="availableGaps">-</div>
+                    <div class="stat-label">Available Gaps</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgLatency">-</div>
+                    <div class="stat-label">Avg Latency (ms)</div>
+                </div>
+            </div>
+            
+            <div class="health-indicator" id="systemHealth">
+                <i class="fas fa-heartbeat"></i>
+                <span>Checking system health...</span>
+            </div>
+        </div>
+        
+        <!-- Right Bottom: Recent Sequences -->
+        <div class="card">
+            <h2>
+                <i class="fas fa-history"></i>
+                Recent Sequences
+            </h2>
+            
+            <div class="sequence-history" id="sequenceHistory">
+                <div style="text-align: center; color: #7f8c8d; padding: 2rem;">
+                    <i class="fas fa-clock"></i>
+                    <p>No sequences generated yet. Click the buttons above to start!</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Full Width: Charts -->
+        <div class="card full-width">
+            <h2>
+                <i class="fas fa-chart-area"></i>
+                Performance Charts
+            </h2>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                <div class="chart-container">
+                    <canvas id="sequenceChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="distributionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

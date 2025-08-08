@@ -1,0 +1,17 @@
+# Test Configuration
+spring:
+  application:
+    name: sequential-number-ha-poc-test
+
+# Minimal test configuration  
+sequence:
+  etcd:
+    embedded: false  # No etcd for unit tests
+  
+server:
+  port: 0  # Random port for tests
+
+logging:
+  level:
+    com.demo.sequence: DEBUG
+    root: WARN
